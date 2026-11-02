@@ -24,6 +24,9 @@
   - 解析 `VS_VERSION_INFO`、`VS_FIXEDFILEINFO`、`StringFileInfo` 多语言字符串表与 `VarFileInfo` Translation。
   - 解析 FileVersion / ProductVersion、公司名、产品名、版权、原始文件名等字段，按 UTF-16 只读显示。
   - 解析结果与 Windows `GetFileVersionInfoW` / `VerQueryValueW` 交叉验证。
+- **内嵌 PE 文件**
+  - 任意资源数据若以 `MZ` 开头且可解析为有效 PE，预览区显示 PE32/PE32+、EXE/DLL、架构、节数量、子系统、资源/签名/UPX 等格式信息。
+  - 导出时根据类型自动使用 `.exe` / `.dll`（Native 子系统使用 `.sys`）后缀，并切换到 PE 文件过滤器。
 - **菜单资源（RT_MENU）**
   - 支持经典 `MENU` 与 `MENUEX` 模板。
   - 上方预览区绘制菜单栏与展开的下拉菜单面板，显示层级、分隔线、禁用/勾选状态。

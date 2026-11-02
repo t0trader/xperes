@@ -36,6 +36,9 @@ struct PeInfo {
     std::wstring ArchitectureLabel() const;
 };
 
+// Suggested file extension when exporting an embedded PE image.
+std::wstring SuggestedPeExtension(const PeInfo& info);
+
 class PeImage {
 public:
     static Result<PeImage> LoadFromFile(const std::filesystem::path& path);

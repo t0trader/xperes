@@ -134,6 +134,16 @@ std::wstring PeInfo::ArchitectureLabel() const {
     return is64 ? L"PE32+" : L"PE32";
 }
 
+std::wstring SuggestedPeExtension(const PeInfo& info) {
+    if (info.isDll) {
+        return L"dll";
+    }
+    if (info.subsystem == 1) {  // IMAGE_SUBSYSTEM_NATIVE
+        return L"sys";
+    }
+    return L"exe";
+}
+
 Result<PeImage> PeImage::LoadFromFile(const std::filesystem::path& path) {
     std::ifstream file(path, std::ios::binary | std::ios::ate);
     if (!file) {

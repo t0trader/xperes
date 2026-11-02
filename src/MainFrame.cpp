@@ -177,6 +177,86 @@ std::wstring ImageDetails(const DecodedImage& image, size_t dataSize) {
         WideToUtf8(HumanSize(dataSize))));
 }
 
+bool LooksLikePe(std::span<const uint8_t> data) {
+    return data.size() >= 0x40 && data[0] == 'M' && data[1] == 'Z';
+}
+
+std::wstring PeSubsystemLabel(uint32_t subsystem) {
+    switch (subsystem) {
+        case 1:
+            return L"Native";
+        case 2:
+            return L"Windows GUI";
+        case 3:
+            return L"Windows CUI";
+        case 5:
+            return L"OS/2 CUI";
+        case 7:
+            return L"POSIX CUI";
+        case 9:
+            return L"Windows CE GUI";
+        case 10:
+            return L"EFI Application";
+        case 11:
+            return L"EFI Boot Service Driver";
+        case 12:
+            return L"EFI Runtime Driver";
+        case 13:
+            return L"EFI ROM";
+        case 14:
+            return L"Xbox";
+        case 16:
+            return L"Windows Boot Application";
+        default:
+            return L"Unknown";
+    }
+}
+
+std::wstring PeSummary(const PeInfo& info) {
+    std::wstring text = info.ArchitectureLabel() + L" · " + info.FileKind() + L" · " +
+                        info.MachineLabel() + L" · " + std::to_wstring(info.sectionCount) +
+                        L" 节";
+    if (info.hasResources) {
+        text += L" · 含资源";
+    }
+    if (info.hasSignature) {
+        text += L" · 已签名";
+    }
+    if (info.upxPacked) {
+        text += L" · UPX";
+    }
+    return text;
+}
+
+std::wstring PeDetails(const PeImage& image) {
+    const PeInfo& info = image.Info();
+    std::wstring text = L"内嵌 PE 文件\r\n\r\n";
+    text += L"格式: " + info.ArchitectureLabel() + L" (" +
+            std::to_wstring(info.is64 ? 64 : 32) + L" 位)\r\n";
+    text += L"类型: " + info.FileKind() + L"\r\n";
+    text += L"架构: " + info.MachineLabel() + L" (machine 0x" +
+            Utf8ToWide(fmt::format("{:04X}", info.machine)) + L")\r\n";
+    text += L"节数量: " + std::to_wstring(info.sectionCount) + L"\r\n";
+    text += L"文件大小: " + HumanSize(info.fileSize) + L"\r\n";
+    text += L"映像基址: 0x" + Utf8ToWide(fmt::format("{:X}", info.imageBase)) + L"\r\n";
+    text += L"子系统: " + PeSubsystemLabel(info.subsystem) + L" (" +
+            std::to_wstring(info.subsystem) + L")\r\n";
+    text += L"包含资源: " + std::wstring(info.hasResources ? L"是" : L"否") + L"\r\n";
+    text += L"数字签名: " + std::wstring(info.hasSignature ? L"是" : L"否") + L"\r\n";
+    text += L"UPX: " + std::wstring(info.upxPacked ? L"是" : L"否") + L"\r\n";
+    text += L"建议导出扩展名: ." + SuggestedPeExtension(info) + L"\r\n";
+
+    const auto& sections = image.Sections();
+    if (!sections.empty()) {
+        text += L"\r\n节:";
+        for (const auto& section : sections) {
+            text += L" " + Utf8ToWide(section.name) + L"(" + HumanSize(section.rawSize) + L")";
+        }
+        text += L"\r\n";
+    }
+    return text;
+}
+
 const wchar_t* FilterForExtension(std::wstring_view extension) {
     if (IEqualsAscii(extension, L"ico")) {
         return kIcoFilter;
@@ -191,6 +271,10 @@ const wchar_t* FilterForExtension(std::wstring_view extension) {
     }
     if (IEqualsAscii(extension, L"xml") || IEqualsAscii(extension, L"manifest")) {
         return kManifestFilter;
+    }
+    if (IEqualsAscii(extension, L"exe") || IEqualsAscii(extension, L"dll") ||
+        IEqualsAscii(extension, L"ocx") || IEqualsAscii(extension, L"sys")) {
+        return kPeFilter;
     }
     return kAllFilter;
 }
@@ -1000,6 +1084,18 @@ void CMainFrame::UpdatePreview() {
         return;
     }
 
+    if (LooksLikePe(entry->data)) {
+        auto nested = PeImage::LoadFromBytes(entry->data);
+        if (nested) {
+            const PeInfo& info = nested->Info();
+            std::wstring body = L"内嵌 PE 文件：" + PeSummary(info) +
+                                L"\r\n建议导出扩展名：." + SuggestedPeExtension(info);
+            m_preview.ShowMessage(title, subtitle, std::move(body));
+            SetEditText(PeDetails(*nested));
+            return;
+        }
+    }
+
     const ImageFileFormat detected = DetectImageFormat(entry->data);
     if (detected != ImageFileFormat::Unknown) {
         auto image = DecodeImage(entry->data);
@@ -1345,6 +1441,12 @@ std::wstring CMainFrame::ExportExtension(const ResourceEntry& entry,
     }
     if (IsResourceType(entry.type, ResourceType::Manifest)) {
         return L"xml";
+    }
+    if (LooksLikePe(entry.data)) {
+        auto pe = PeImage::LoadFromBytes(entry.data);
+        if (pe) {
+            return SuggestedPeExtension(pe->Info());
+        }
     }
     const ImageFileFormat detected = DetectImageFormat(entry.data);
     if (detected != ImageFileFormat::Unknown) {

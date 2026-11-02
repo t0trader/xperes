@@ -11,6 +11,7 @@
 - 清单 XML 按节点格式化，支持直接编辑，保留原编码与 BOM。
 - 字符串表以 UTF-16 解析为可编辑文本。
 - 新增 RT_VERSION 版本信息解析：VS_FIXEDFILEINFO、StringFileInfo 字符串表、VarFileInfo Translation，只读展示完整内容。
+- 新增内嵌 PE 文件识别：资源预览显示 PE 格式、类型、架构、子系统等信息；导出自动使用 `.exe` / `.dll` / `.sys` 后缀与 PE 过滤器。
 - MENU / MENUEX 菜单资源解析、可视化菜单预览、文本编辑与编译。
 - DIALOG / DIALOGEX 对话框资源解析、可视化对话框预览、文本编辑与编译。
 - 文本编辑应用/放弃流程、未应用编辑保护、Ctrl+Enter 应用。

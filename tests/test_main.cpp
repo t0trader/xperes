@@ -305,6 +305,8 @@ void TestSampleDll() {
     if (!image) {
         return;
     }
+    CHECK(image->Info().isDll);
+    CHECK(SuggestedPeExtension(image->Info()) == L"dll");
     CHECK(image->Info().is64);
     CHECK(image->Info().machine == 0x8664);
     CHECK(image->Info().isDll);
@@ -901,6 +903,8 @@ void TestApplicationExe() {
     if (!image) {
         return;
     }
+    CHECK(!image->Info().isDll);
+    CHECK(SuggestedPeExtension(image->Info()) == L"exe");
     CHECK(image->Info().is64);
     CHECK(image->Info().isDll == false);
     CHECK(!image->Resources().empty());

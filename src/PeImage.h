@@ -1,0 +1,86 @@
+#pragma once
+
+#include "ResourceModel.h"
+#include "Result.h"
+
+#include <cstdint>
+#include <filesystem>
+#include <string>
+#include <vector>
+
+namespace peres {
+
+struct PeSectionInfo {
+    std::string name;
+    uint32_t virtualSize = 0;
+    uint32_t virtualAddress = 0;
+    uint32_t rawSize = 0;
+    uint32_t rawOffset = 0;
+    uint32_t characteristics = 0;
+};
+
+struct PeInfo {
+    bool is64 = false;
+    bool isDll = false;
+    bool hasResources = false;
+    bool hasSignature = false;
+    bool upxPacked = false;
+    uint16_t machine = 0;
+    uint32_t sectionCount = 0;
+    uint32_t subsystem = 0;
+    uint64_t fileSize = 0;
+    uint64_t imageBase = 0;
+
+    std::wstring MachineLabel() const;
+    std::wstring FileKind() const;
+    std::wstring ArchitectureLabel() const;
+};
+
+class PeImage {
+public:
+    static Result<PeImage> LoadFromFile(const std::filesystem::path& path);
+    static Result<PeImage> LoadFromBytes(std::vector<uint8_t> bytes);
+
+    const PeInfo& Info() const noexcept { return m_info; }
+    const std::vector<PeSectionInfo>& Sections() const noexcept { return m_sections; }
+    const std::vector<ResourceEntry>& Resources() const noexcept { return m_resources; }
+    const std::vector<uint8_t>& OriginalBytes() const noexcept { return m_bytes; }
+
+    // Rebuilds the resource section from |model| and returns the complete new
+    // file image.  The original resource section is updated in place when it
+    // has enough room; otherwise a new .rsrc section is appended.  A digital
+    // signature (if any) is removed because it cannot survive modification.
+    Result<std::vector<uint8_t>> CompileResources(const ResourceModel& model) const;
+
+private:
+    PeImage() = default;
+
+    Result<void> Parse();
+    Result<uint32_t> RvaToOffset(uint32_t rva, uint32_t size) const;
+    Result<uint32_t> ResourceSectionFileLimit(uint32_t rva) const;
+
+    std::vector<uint8_t> m_bytes;
+    PeInfo m_info;
+    std::vector<PeSectionInfo> m_sections;
+    std::vector<ResourceEntry> m_resources;
+
+    uint32_t m_peOffset = 0;
+    uint32_t m_fileHeaderOffset = 0;
+    uint32_t m_optOffset = 0;
+    uint32_t m_sizeOfOptionalHeader = 0;
+    uint32_t m_dataDirOffset = 0;
+    uint32_t m_dataDirCount = 0;
+    uint16_t m_fileCharacteristics = 0;
+    uint32_t m_sectionAlignment = 0;
+    uint32_t m_fileAlignment = 0;
+    uint32_t m_sizeOfHeaders = 0;
+    uint32_t m_sizeOfImage = 0;
+    uint32_t m_resourceRva = 0;
+    uint32_t m_resourceSize = 0;
+    uint32_t m_securityOffset = 0;
+    uint32_t m_securitySize = 0;
+    uint16_t m_numberOfSections = 0;
+    uint16_t m_optionalMagic = 0;
+};
+
+}  // namespace peres

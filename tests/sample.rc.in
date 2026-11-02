@@ -1,0 +1,102 @@
+#include <windows.h>
+
+LANGUAGE 0x0409, 0x1
+
+1 ICON "@PERES_APP_ICON@"
+
+2 24 "@PERES_APP_MANIFEST@"
+
+201 RCDATA "@PERES_SAMPLE_DATA@"
+
+PNGDATA PNG "@PERES_SAMPLE_PNG@"
+JPEGDATA JPEG "@PERES_SAMPLE_JPG@"
+
+STRINGTABLE
+BEGIN
+    101, "peres sample string"
+END
+
+301 MENU
+BEGIN
+    POPUP "File"
+    BEGIN
+        MENUITEM "Open", 40001
+        MENUITEM SEPARATOR
+        MENUITEM "Exit", 40002
+    END
+    POPUP "Help"
+    BEGIN
+        MENUITEM "About", 40003
+    END
+END
+
+303 MENUEX
+BEGIN
+    POPUP "FileEx", 40010, MF_ENABLED
+    BEGIN
+        MENUITEM "OpenEx", 40011, MF_ENABLED
+    END
+END
+
+302 DIALOG 0, 0, 200, 100
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Classic Dialog"
+BEGIN
+    LTEXT "Label", 1001, 10, 10, 120, 12
+    PUSHBUTTON "OK", 1002, 60, 70, 60, 14
+END
+
+1 VERSIONINFO
+FILEVERSION 1,2,3,4
+PRODUCTVERSION 1,2,3,4
+FILEFLAGSMASK 0x3fL
+FILEFLAGS 0x0L
+FILEOS 0x40004L
+FILETYPE 0x1L
+FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "Peres Test"
+            VALUE "FileDescription", "Peres resource sample"
+            VALUE "FileVersion", "1.2.3.4"
+            VALUE "InternalName", "peres_sample"
+            VALUE "LegalCopyright", "Copyright (C) 2026"
+            VALUE "OriginalFilename", "peres_sample.dll"
+            VALUE "ProductName", "Peres"
+            VALUE "ProductVersion", "1.2.3.4"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 0x04B0
+    END
+END
+
+304 DIALOGEX 0, 0, 200, 100
+STYLE DS_SETFONT | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Extended Dialog"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT "LabelEx", 1101, 10, 10, 120, 12
+    PUSHBUTTON "OKEx", 1102, 60, 70, 60, 14
+END
+
+305 DIALOGEX 0, 0, 200, 100
+STYLE WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "NoFontEx"
+BEGIN
+    LTEXT "NF", 1201, 10, 10, 120, 12
+    PUSHBUTTON "OKNF", 1202, 60, 70, 60, 14
+END
+
+306 DIALOG 0, 0, 200, 100
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Classic Font"
+FONT 9, "Segoe UI"
+BEGIN
+    LTEXT "CF", 1301, 10, 10, 120, 12
+    PUSHBUTTON "OKCF", 1302, 60, 70, 60, 14
+END

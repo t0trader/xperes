@@ -257,6 +257,118 @@ std::wstring PeDetails(const PeImage& image) {
     return text;
 }
 
+std::string ImportSymbolLabel(const PeImportSymbol& symbol) {
+    if (!symbol.byOrdinal && !symbol.name.empty()) {
+        return symbol.name;
+    }
+    return fmt::format("#{}", symbol.ordinal);
+}
+
+std::wstring ExportTableText(const PeExportInfo& exports) {
+    std::string text = "导出表\r\n\r\n";
+    text += fmt::format("模块名: {}\r\n",
+                        exports.moduleName.empty() ? "(未命名)" : exports.moduleName);
+    text += fmt::format("序号基值: {}    函数数量: {}    命名数量: {}\r\n", exports.baseOrdinal,
+                        exports.functionCount, exports.nameCount);
+    text += fmt::format("目录 RVA: 0x{:08X}    目录大小: {} 字节\r\n", exports.directoryRva,
+                        exports.directorySize);
+    text += fmt::format("时间戳: 0x{:08X}\r\n\r\n", exports.timestamp);
+    text += fmt::format("{:<6} {:<40} {:<12} {}\r\n", "序号", "名称", "RVA", "转发");
+    text += std::string(84, '-') + "\r\n";
+    if (exports.symbols.empty()) {
+        text += "（导出表为空）\r\n";
+    }
+    for (const auto& symbol : exports.symbols) {
+        text += fmt::format("{:<6} {:<40} 0x{:08X}   {}\r\n", symbol.ordinal,
+                            symbol.name.empty() ? "(仅序号)" : symbol.name, symbol.rva,
+                            symbol.forwarder);
+    }
+    return Utf8ToWide(text);
+}
+
+std::wstring ExportSymbolText(const PeExportInfo& exports, const PeExportSymbol& symbol) {
+    std::string text = "导出符号\r\n\r\n";
+    text += fmt::format("所属模块: {}\r\n",
+                        exports.moduleName.empty() ? "(未命名)" : exports.moduleName);
+    text += fmt::format("序号: {}\r\n", symbol.ordinal);
+    text += fmt::format("名称: {}\r\n", symbol.name.empty() ? "(仅序号)" : symbol.name);
+    text += fmt::format("RVA: 0x{:08X}\r\n", symbol.rva);
+    text += fmt::format("转发: {}\r\n", symbol.forwarder.empty() ? "(无)" : symbol.forwarder);
+    return Utf8ToWide(text);
+}
+
+std::wstring ImportModuleText(const PeImportModule& module) {
+    std::string text = fmt::format("导入模块\r\n\r\n模块名: {}\r\n", module.name);
+    text += fmt::format("描述符 RVA: 0x{:08X}\r\n", module.descriptorRva);
+    text += fmt::format("OriginalFirstThunk: 0x{:08X}\r\n", module.originalFirstThunkRva);
+    text += fmt::format("FirstThunk (IAT): 0x{:08X}\r\n", module.firstThunkRva);
+    text += fmt::format("时间戳: 0x{:08X}\r\n\r\n", module.timestamp);
+    text += fmt::format("{:<4} {:<42} {}\r\n", "#", "名称", "IAT RVA");
+    text += std::string(70, '-') + "\r\n";
+    if (module.symbols.empty()) {
+        text += "（没有可解析的符号）\r\n";
+    }
+    for (size_t i = 0; i < module.symbols.size(); ++i) {
+        const auto& symbol = module.symbols[i];
+        text += fmt::format("{:<4} {:<42} 0x{:08X}\r\n", i + 1, ImportSymbolLabel(symbol),
+                            symbol.iatRva);
+    }
+    return Utf8ToWide(text);
+}
+
+std::wstring ImportTableText(const std::vector<PeImportModule>& modules) {
+    size_t totalSymbols = 0;
+    for (const auto& module : modules) {
+        totalSymbols += module.symbols.size();
+    }
+    std::string text = fmt::format("导入表\r\n\r\n模块数量: {}    符号总数: {}\r\n", modules.size(),
+                                   totalSymbols);
+    if (modules.empty()) {
+        text += "\r\n（导入表为空）\r\n";
+        return Utf8ToWide(text);
+    }
+    for (const auto& module : modules) {
+        text += fmt::format("\r\n{}  ({} 个符号)\r\n", module.name, module.symbols.size());
+        if (module.symbols.empty()) {
+            text += "  （没有可解析的符号）\r\n";
+            continue;
+        }
+        for (size_t i = 0; i < module.symbols.size(); ++i) {
+            const auto& symbol = module.symbols[i];
+            text += fmt::format("  {:<4} {:<42} 0x{:08X}\r\n", i + 1, ImportSymbolLabel(symbol),
+                                symbol.iatRva);
+        }
+    }
+    return Utf8ToWide(text);
+}
+
+std::wstring ImportSymbolText(const PeImportModule& module, const PeImportSymbol& symbol) {
+    std::string text = "导入符号\r\n\r\n";
+    text += fmt::format("所属模块: {}\r\n", module.name);
+    text += fmt::format("名称: {}\r\n", symbol.name.empty() ? "(仅序号)" : symbol.name);
+    text += fmt::format("序号: {}\r\n", symbol.ordinal);
+    text += fmt::format("按序号导入: {}\r\n", symbol.byOrdinal ? "是" : "否");
+    text += fmt::format("Hint: {}\r\n", symbol.hint);
+    text += fmt::format("IAT RVA: 0x{:08X}\r\n", symbol.iatRva);
+    return Utf8ToWide(text);
+}
+
+std::wstring ExportNodeText(const PeExportSymbol& symbol) {
+    std::wstring text = L"序号 " + std::to_wstring(symbol.ordinal) + L"  ";
+    text += symbol.name.empty() ? L"(仅序号)" : Utf8ToWide(symbol.name);
+    if (!symbol.forwarder.empty()) {
+        text += L"  → " + Utf8ToWide(symbol.forwarder);
+    }
+    return text;
+}
+
+std::wstring ImportNodeText(const PeImportSymbol& symbol) {
+    if (!symbol.byOrdinal && !symbol.name.empty()) {
+        return Utf8ToWide(symbol.name);
+    }
+    return L"#" + std::to_wstring(symbol.ordinal) + L"  (序号导入)";
+}
+
 const wchar_t* FilterForExtension(std::wstring_view extension) {
     if (IEqualsAscii(extension, L"ico")) {
         return kIcoFilter;
@@ -687,11 +799,14 @@ void CMainFrame::RebuildTree(std::optional<ResourceKey> selectedKey) {
     ResourceId currentName;
     bool hasCurrent = false;
     std::vector<HTREEITEM> typeItems;
+    std::vector<HTREEITEM> symbolRoots;
 
     const auto insertNode = [&](HTREEITEM parent, const std::wstring& text, TreeLevel level,
                                 const ResourceId& type, const ResourceId& name,
-                                uint16_t language) -> HTREEITEM {
-        m_nodes.emplace_back(NodeData{level, type, name, language});
+                                uint16_t language, uint32_t firstIndex = 0,
+                                uint32_t secondIndex = 0) -> HTREEITEM {
+        m_nodes.emplace_back(
+            NodeData{level, type, name, language, firstIndex, secondIndex});
         NodeData* node = &m_nodes.back();
         TVINSERTSTRUCTW insert{};
         insert.hParent = parent;
@@ -702,6 +817,52 @@ void CMainFrame::RebuildTree(std::optional<ResourceKey> selectedKey) {
         return reinterpret_cast<HTREEITEM>(
             ::SendMessageW(m_tree.m_hWnd, TVM_INSERTITEMW, 0, reinterpret_cast<LPARAM>(&insert)));
     };
+
+    if (m_pe.has_value()) {
+        if (m_pe->Exports().has_value() && !m_pe->Exports()->symbols.empty()) {
+            const auto& exports = *m_pe->Exports();
+            HTREEITEM root =
+                insertNode(nullptr,
+                           L"导出表  (" + std::to_wstring(exports.symbols.size()) + L" 个符号)",
+                           TreeLevel::ExportRoot, {}, {}, 0);
+            if (root != nullptr) {
+                for (size_t i = 0; i < exports.symbols.size(); ++i) {
+                    insertNode(root, ExportNodeText(exports.symbols[i]), TreeLevel::ExportSymbol,
+                               {}, {}, 0, static_cast<uint32_t>(i));
+                }
+                symbolRoots.push_back(root);
+            }
+        }
+        if (!m_pe->Imports().empty()) {
+            HTREEITEM root =
+                insertNode(nullptr,
+                           L"导入表  (" + std::to_wstring(m_pe->Imports().size()) + L" 个模块)",
+                           TreeLevel::ImportRoot, {}, {}, 0);
+            if (root != nullptr) {
+                for (size_t moduleIndex = 0; moduleIndex < m_pe->Imports().size();
+                     ++moduleIndex) {
+                    const auto& module = m_pe->Imports()[moduleIndex];
+                    HTREEITEM moduleItem =
+                        insertNode(root,
+                                   Utf8ToWide(module.name) + L"  (" +
+                                       std::to_wstring(module.symbols.size()) + L")",
+                                   TreeLevel::ImportModule, {}, {}, 0,
+                                   static_cast<uint32_t>(moduleIndex));
+                    if (moduleItem == nullptr) {
+                        continue;
+                    }
+                    for (size_t symbolIndex = 0; symbolIndex < module.symbols.size();
+                         ++symbolIndex) {
+                        insertNode(moduleItem, ImportNodeText(module.symbols[symbolIndex]),
+                                   TreeLevel::ImportSymbol, {}, {}, 0,
+                                   static_cast<uint32_t>(moduleIndex),
+                                   static_cast<uint32_t>(symbolIndex));
+                    }
+                }
+                symbolRoots.push_back(root);
+            }
+        }
+    }
 
     for (const auto& entry : m_model.Entries()) {
         if (!hasCurrent || !(entry.type == currentType)) {
@@ -731,6 +892,9 @@ void CMainFrame::RebuildTree(std::optional<ResourceKey> selectedKey) {
     }
 
     for (const HTREEITEM item : typeItems) {
+        m_tree.Expand(item, TVE_EXPAND);
+    }
+    for (const HTREEITEM item : symbolRoots) {
         m_tree.Expand(item, TVE_EXPAND);
     }
     m_tree.SetRedraw(TRUE);
@@ -927,12 +1091,121 @@ void CMainFrame::UpdatePreview() {
         if (!m_hasFile) {
             m_preview.ShowEmpty();
         } else if (m_model.Entries().empty()) {
-            m_preview.ShowMessage(L"该 PE 文件没有资源", L"",
-                                  L"文件已打开，但没有可浏览的资源。");
+            const bool hasSymbols =
+                m_pe.has_value() &&
+                (m_pe->Exports().has_value() || !m_pe->Imports().empty());
+            if (hasSymbols) {
+                m_preview.ShowMessage(L"资源浏览器", L"",
+                                      L"该 PE 文件没有资源，请从左侧树中选择导入表或导出表条目。");
+            } else {
+                m_preview.ShowMessage(L"该 PE 文件没有资源", L"",
+                                      L"文件已打开，但没有可浏览的资源。");
+            }
         } else {
             m_preview.ShowMessage(L"资源浏览器", L"",
-                                  L"请从左侧树中选择一个资源条目。");
+                                  L"请从左侧树中选择资源、导入表或导出表条目。");
         }
+        return;
+    }
+
+    if (node->level == TreeLevel::ExportRoot) {
+        if (!m_pe.has_value() || !m_pe->Exports().has_value()) {
+            m_preview.ShowMessage(L"导出表", L"", L"导出表不可用。");
+            SetEditText(L"");
+            return;
+        }
+        const PeExportInfo& exports = *m_pe->Exports();
+        std::wstring subtitle = std::to_wstring(exports.symbols.size()) + L" 个符号";
+        std::wstring body =
+            L"导出模块：" +
+            (exports.moduleName.empty() ? L"(未命名)" : Utf8ToWide(exports.moduleName));
+        body += L"\r\n序号基值：" + std::to_wstring(exports.baseOrdinal);
+        body += L"\r\n完整符号列表显示在下方。";
+        m_preview.ShowMessage(L"导出表", std::move(subtitle), std::move(body));
+        SetEditText(ExportTableText(exports));
+        return;
+    }
+
+    if (node->level == TreeLevel::ExportSymbol) {
+        if (!m_pe.has_value() || !m_pe->Exports().has_value() ||
+            node->firstIndex >= m_pe->Exports()->symbols.size()) {
+            m_preview.ShowMessage(L"导出符号", L"", L"符号条目已失效。");
+            SetEditText(L"");
+            return;
+        }
+        const PeExportInfo& exports = *m_pe->Exports();
+        const PeExportSymbol& symbol = exports.symbols[node->firstIndex];
+        std::wstring title = L"导出符号";
+        if (!symbol.name.empty()) {
+            title += L"  ·  " + Utf8ToWide(symbol.name);
+        }
+        std::wstring subtitle = L"序号 " + std::to_wstring(symbol.ordinal);
+        std::wstring body =
+            L"RVA 0x" + Utf8ToWide(fmt::format("{:08X}", symbol.rva));
+        if (!symbol.forwarder.empty()) {
+            body += L"\r\n转发至 " + Utf8ToWide(symbol.forwarder);
+        }
+        m_preview.ShowMessage(std::move(title), std::move(subtitle), std::move(body));
+        SetEditText(ExportSymbolText(exports, symbol));
+        return;
+    }
+
+    if (node->level == TreeLevel::ImportRoot) {
+        if (!m_pe.has_value()) {
+            m_preview.ShowMessage(L"导入表", L"", L"导入表不可用。");
+            SetEditText(L"");
+            return;
+        }
+        size_t totalSymbols = 0;
+        for (const auto& module : m_pe->Imports()) {
+            totalSymbols += module.symbols.size();
+        }
+        std::wstring subtitle = std::to_wstring(m_pe->Imports().size()) + L" 个模块 · " +
+                                std::to_wstring(totalSymbols) + L" 个符号";
+        m_preview.ShowMessage(L"导入表", std::move(subtitle),
+                              L"按 DLL 分组的导入符号显示在下方。");
+        SetEditText(ImportTableText(m_pe->Imports()));
+        return;
+    }
+
+    if (node->level == TreeLevel::ImportModule) {
+        if (!m_pe.has_value() || node->firstIndex >= m_pe->Imports().size()) {
+            m_preview.ShowMessage(L"导入模块", L"", L"模块条目已失效。");
+            SetEditText(L"");
+            return;
+        }
+        const PeImportModule& module = m_pe->Imports()[node->firstIndex];
+        std::wstring subtitle = std::to_wstring(module.symbols.size()) + L" 个符号";
+        std::wstring body =
+            L"IAT RVA 0x" + Utf8ToWide(fmt::format("{:08X}", module.firstThunkRva));
+        body += L"\r\n导入符号显示在下方。";
+        m_preview.ShowMessage(Utf8ToWide(module.name), std::move(subtitle), std::move(body));
+        SetEditText(ImportModuleText(module));
+        return;
+    }
+
+    if (node->level == TreeLevel::ImportSymbol) {
+        if (!m_pe.has_value() || node->firstIndex >= m_pe->Imports().size()) {
+            m_preview.ShowMessage(L"导入符号", L"", L"符号条目已失效。");
+            SetEditText(L"");
+            return;
+        }
+        const PeImportModule& module = m_pe->Imports()[node->firstIndex];
+        if (node->secondIndex >= module.symbols.size()) {
+            m_preview.ShowMessage(L"导入符号", L"", L"符号条目已失效。");
+            SetEditText(L"");
+            return;
+        }
+        const PeImportSymbol& symbol = module.symbols[node->secondIndex];
+        std::wstring title = symbol.name.empty()
+                                 ? L"#" + std::to_wstring(symbol.ordinal)
+                                 : Utf8ToWide(symbol.name);
+        std::wstring body =
+            L"模块：" + Utf8ToWide(module.name) + L"\r\nIAT RVA 0x" +
+            Utf8ToWide(fmt::format("{:08X}", symbol.iatRva)) + L"\r\nHint " +
+            std::to_wstring(symbol.hint);
+        m_preview.ShowMessage(std::move(title), Utf8ToWide(module.name), std::move(body));
+        SetEditText(ImportSymbolText(module, symbol));
         return;
     }
 
@@ -1829,6 +2102,7 @@ LRESULT CMainFrame::OnHelpAbout(WORD, WORD, HWND, BOOL&) {
         L"PE 资源浏览器（C++23 / WTL）\r\n\r\n"
         L"支持 PE32 与 PE32+（EXE / DLL）\r\n"
         L"查看、导出、替换和删除资源\r\n"
+        L"导入表 / 导出表：模块、符号、序号、RVA、转发与 IAT\r\n"
         L"图标组整体替换（自动拆分 RT_ICON）\r\n"
         L"图像预览：BMP / PNG / JPEG / GIF / TIFF（WIC）\r\n"
         L"UPX 脱壳（通过 peres.ini 配置 upx.exe 路径）\r\n\r\n"

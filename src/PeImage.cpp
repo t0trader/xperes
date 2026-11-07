@@ -30,6 +30,12 @@ constexpr uint16_t kMachineIa64 = 0x0200;
 constexpr uint16_t kFileDll = 0x2000;
 constexpr uint32_t kResourceDirectoryIndex = 2;
 constexpr uint32_t kSecurityDirectoryIndex = 4;
+constexpr uint32_t kExportDirectoryIndex = 0;
+constexpr uint32_t kImportDirectoryIndex = 1;
+constexpr uint32_t kMaxExportSymbols = 200000;
+constexpr uint32_t kMaxImportModules = 4096;
+constexpr uint32_t kMaxImportSymbols = 200000;
+constexpr size_t kMaxSymbolNameLength = 512;
 constexpr uint32_t kMaxResourceEntries = 200000;
 constexpr uint32_t kMaxDirectoryEntries = 100000;
 constexpr uint32_t kMaxResourceSize = 0x40000000;  // 1 GiB per resource
@@ -209,6 +215,228 @@ Result<uint32_t> PeImage::ResourceSectionFileLimit(uint32_t rva) const {
         return m_sizeOfHeaders;
     }
     return MakeError(L"资源目录不在任何已初始化的节中");
+}
+
+std::optional<std::string> PeImage::ReadAsciiStringAtRva(uint32_t rva, size_t maxLength) const {
+    auto offsetResult = RvaToOffset(rva, 1);
+    if (!offsetResult) {
+        return std::nullopt;
+    }
+    size_t limit = m_bytes.size();
+    for (const auto& section : m_sections) {
+        if (rva >= section.virtualAddress &&
+            rva < static_cast<uint64_t>(section.virtualAddress) + section.rawSize) {
+            limit = std::min<size_t>(limit,
+                                     static_cast<size_t>(section.rawOffset) + section.rawSize);
+            break;
+        }
+    }
+    if (rva < m_sizeOfHeaders) {
+        limit = std::min<size_t>(limit, m_sizeOfHeaders);
+    }
+
+    std::string text;
+    for (size_t at = *offsetResult; at < limit && text.size() < maxLength; ++at) {
+        const uint8_t value = m_bytes[at];
+        if (value == 0) {
+            return text;
+        }
+        if (value < 0x20) {
+            return std::nullopt;
+        }
+        text.push_back(static_cast<char>(value));
+    }
+    return std::nullopt;
+}
+
+void PeImage::ParseExports() {
+    if (m_dataDirCount <= kExportDirectoryIndex) {
+        return;
+    }
+    const uint32_t directoryRva = ReadU32(m_bytes, m_dataDirOffset);
+    const uint32_t directorySize = ReadU32(m_bytes, m_dataDirOffset + 4);
+    if (directoryRva == 0 || directorySize < 40) {
+        return;
+    }
+    auto offsetResult = RvaToOffset(directoryRva, 40);
+    if (!offsetResult) {
+        return;
+    }
+    const size_t at = *offsetResult;
+
+    const uint32_t timestamp = ReadU32(m_bytes, at + 4);
+    const uint32_t nameRva = ReadU32(m_bytes, at + 12);
+    const uint32_t baseOrdinal = ReadU32(m_bytes, at + 16);
+    const uint32_t functionCount = ReadU32(m_bytes, at + 20);
+    const uint32_t nameCount = ReadU32(m_bytes, at + 24);
+    const uint32_t functionsRva = ReadU32(m_bytes, at + 28);
+    const uint32_t namesRva = ReadU32(m_bytes, at + 32);
+    const uint32_t ordinalsRva = ReadU32(m_bytes, at + 36);
+
+    if (functionCount > kMaxExportSymbols || nameCount > kMaxExportSymbols) {
+        return;
+    }
+
+    PeExportInfo info;
+    info.moduleName = nameRva != 0
+                          ? ReadAsciiStringAtRva(nameRva, kMaxSymbolNameLength).value_or("")
+                          : std::string();
+    info.baseOrdinal = baseOrdinal;
+    info.functionCount = functionCount;
+    info.nameCount = nameCount;
+    info.timestamp = timestamp;
+    info.directoryRva = directoryRva;
+    info.directorySize = directorySize;
+
+    if (functionCount != 0 && functionsRva != 0) {
+        const uint64_t tableSize = static_cast<uint64_t>(functionCount) * 4ull;
+        auto tableOffset = RvaToOffset(functionsRva, static_cast<uint32_t>(tableSize));
+        if (tableOffset) {
+            info.symbols.resize(functionCount);
+            for (uint32_t i = 0; i < functionCount; ++i) {
+                auto& symbol = info.symbols[i];
+                symbol.ordinal = baseOrdinal + i;
+                symbol.rva = ReadU32(m_bytes, *tableOffset + static_cast<size_t>(i) * 4);
+            }
+        }
+    }
+
+    if (!info.symbols.empty() && nameCount != 0 && namesRva != 0 && ordinalsRva != 0) {
+        const uint64_t namesSize = static_cast<uint64_t>(nameCount) * 4ull;
+        const uint64_t ordinalsSize = static_cast<uint64_t>(nameCount) * 2ull;
+        auto namesOffset = RvaToOffset(namesRva, static_cast<uint32_t>(namesSize));
+        auto ordinalsOffset = RvaToOffset(ordinalsRva, static_cast<uint32_t>(ordinalsSize));
+        if (namesOffset && ordinalsOffset) {
+            const uint32_t count = std::min(nameCount, functionCount);
+            const uint64_t directoryEnd =
+                static_cast<uint64_t>(directoryRva) + directorySize;
+            for (uint32_t i = 0; i < count; ++i) {
+                const uint32_t symbolNameRva =
+                    ReadU32(m_bytes, *namesOffset + static_cast<size_t>(i) * 4);
+                const uint16_t index =
+                    ReadU16(m_bytes, *ordinalsOffset + static_cast<size_t>(i) * 2);
+                if (index >= info.symbols.size()) {
+                    continue;
+                }
+                auto& symbol = info.symbols[index];
+                if (auto name = ReadAsciiStringAtRva(symbolNameRva, kMaxSymbolNameLength)) {
+                    symbol.name = std::move(*name);
+                }
+                if (!symbol.forwarder.empty()) {
+                    continue;
+                }
+                if (symbol.rva >= directoryRva && symbol.rva < directoryEnd) {
+                    if (auto forwarder =
+                            ReadAsciiStringAtRva(symbol.rva, kMaxSymbolNameLength)) {
+                        symbol.forwarder = std::move(*forwarder);
+                    }
+                }
+            }
+        }
+    }
+
+    m_exports = std::move(info);
+}
+
+void PeImage::ParseImports() {
+    if (m_dataDirCount <= kImportDirectoryIndex) {
+        return;
+    }
+    const uint32_t directoryRva = ReadU32(m_bytes, m_dataDirOffset + 8);
+    if (directoryRva == 0) {
+        return;
+    }
+
+    const uint32_t thunkSize = m_info.is64 ? 8u : 4u;
+    for (uint32_t moduleIndex = 0; moduleIndex < kMaxImportModules; ++moduleIndex) {
+        const uint64_t descriptorRva =
+            static_cast<uint64_t>(directoryRva) + static_cast<uint64_t>(moduleIndex) * 20ull;
+        if (descriptorRva > 0xFFFFFFFFull) {
+            break;
+        }
+        auto offsetResult = RvaToOffset(static_cast<uint32_t>(descriptorRva), 20);
+        if (!offsetResult) {
+            break;
+        }
+        const size_t at = *offsetResult;
+        const uint32_t originalFirstThunk = ReadU32(m_bytes, at);
+        const uint32_t timestamp = ReadU32(m_bytes, at + 4);
+        const uint32_t nameRva = ReadU32(m_bytes, at + 12);
+        const uint32_t firstThunk = ReadU32(m_bytes, at + 16);
+        if (originalFirstThunk == 0 && nameRva == 0 && firstThunk == 0) {
+            break;
+        }
+        if (nameRva == 0) {
+            break;
+        }
+
+        PeImportModule module;
+        auto moduleName = ReadAsciiStringAtRva(nameRva, kMaxSymbolNameLength);
+        if (!moduleName || moduleName->empty()) {
+            break;
+        }
+        module.name = std::move(*moduleName);
+        module.descriptorRva = static_cast<uint32_t>(descriptorRva);
+        module.originalFirstThunkRva = originalFirstThunk;
+        module.firstThunkRva = firstThunk;
+        module.timestamp = timestamp;
+
+        const uint32_t thunkRva = originalFirstThunk != 0 ? originalFirstThunk : firstThunk;
+        const bool boundWithoutNames = timestamp != 0 && originalFirstThunk == 0;
+        if (thunkRva != 0 && !boundWithoutNames) {
+            for (uint32_t symbolIndex = 0; symbolIndex < kMaxImportSymbols; ++symbolIndex) {
+                const uint64_t entryRva = static_cast<uint64_t>(thunkRva) +
+                                          static_cast<uint64_t>(symbolIndex) * thunkSize;
+                if (entryRva > 0xFFFFFFFFull) {
+                    break;
+                }
+                auto thunkOffset = RvaToOffset(static_cast<uint32_t>(entryRva), thunkSize);
+                if (!thunkOffset) {
+                    break;
+                }
+                const uint64_t value = m_info.is64 ? ReadU64(m_bytes, *thunkOffset)
+                                                   : ReadU32(m_bytes, *thunkOffset);
+                if (value == 0) {
+                    break;
+                }
+
+                PeImportSymbol symbol;
+                const bool byOrdinal =
+                    m_info.is64 ? (value >> 63) != 0 : (value >> 31) != 0;
+                if (byOrdinal) {
+                    symbol.byOrdinal = true;
+                    symbol.ordinal = static_cast<uint32_t>(value & 0xFFFFull);
+                } else {
+                    const uint32_t importNameRva =
+                        static_cast<uint32_t>(value & 0x7FFFFFFFull);
+                    if (importNameRva > 0xFFFFFFFD) {
+                        break;
+                    }
+                    auto hintOffset = RvaToOffset(importNameRva, 2);
+                    if (!hintOffset) {
+                        break;
+                    }
+                    symbol.hint = ReadU16(m_bytes, *hintOffset);
+                    auto symbolName =
+                        ReadAsciiStringAtRva(importNameRva + 2, kMaxSymbolNameLength);
+                    if (!symbolName || symbolName->empty()) {
+                        break;
+                    }
+                    symbol.name = std::move(*symbolName);
+                }
+                if (firstThunk != 0) {
+                    const uint64_t iatRva = static_cast<uint64_t>(firstThunk) +
+                                            static_cast<uint64_t>(symbolIndex) * thunkSize;
+                    if (iatRva <= 0xFFFFFFFFull) {
+                        symbol.iatRva = static_cast<uint32_t>(iatRva);
+                    }
+                }
+                module.symbols.push_back(std::move(symbol));
+            }
+        }
+
+        m_imports.push_back(std::move(module));
+    }
 }
 
 Result<void> PeImage::Parse() {
@@ -488,6 +716,8 @@ Result<void> PeImage::Parse() {
     }
 
     m_info.hasResources = !m_resources.empty();
+    ParseExports();
+    ParseImports();
     return {};
 }
 

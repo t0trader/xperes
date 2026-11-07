@@ -55,13 +55,24 @@ public:
     bool OpenFile(const std::filesystem::path& path);
 
 private:
-    enum class TreeLevel { Type, Name, Language };
+    enum class TreeLevel {
+        ExportRoot,
+        ExportSymbol,
+        ImportRoot,
+        ImportModule,
+        ImportSymbol,
+        Type,
+        Name,
+        Language
+    };
 
     struct NodeData {
         TreeLevel level = TreeLevel::Type;
         ResourceId type;
         ResourceId name;
         uint16_t language = 0;
+        uint32_t firstIndex = 0;
+        uint32_t secondIndex = 0;
     };
 
     LRESULT OnCreate(UINT, WPARAM, LPARAM, BOOL&);

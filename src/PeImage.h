@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -39,6 +40,41 @@ struct PeInfo {
 // Suggested file extension when exporting an embedded PE image.
 std::wstring SuggestedPeExtension(const PeInfo& info);
 
+struct PeExportSymbol {
+    std::string name;       // Empty for exports that are only addressable by ordinal.
+    uint32_t ordinal = 0;
+    uint32_t rva = 0;
+    std::string forwarder;  // Non-empty when the export is forwarded to another DLL.
+};
+
+struct PeExportInfo {
+    std::string moduleName;
+    uint32_t baseOrdinal = 0;
+    uint32_t functionCount = 0;
+    uint32_t nameCount = 0;
+    uint32_t timestamp = 0;
+    uint32_t directoryRva = 0;
+    uint32_t directorySize = 0;
+    std::vector<PeExportSymbol> symbols;
+};
+
+struct PeImportSymbol {
+    std::string name;  // Empty for imports resolved by ordinal.
+    uint16_t hint = 0;
+    uint32_t ordinal = 0;
+    bool byOrdinal = false;
+    uint32_t iatRva = 0;
+};
+
+struct PeImportModule {
+    std::string name;
+    uint32_t descriptorRva = 0;
+    uint32_t originalFirstThunkRva = 0;
+    uint32_t firstThunkRva = 0;
+    uint32_t timestamp = 0;
+    std::vector<PeImportSymbol> symbols;
+};
+
 class PeImage {
 public:
     static Result<PeImage> LoadFromFile(const std::filesystem::path& path);
@@ -47,6 +83,8 @@ public:
     const PeInfo& Info() const noexcept { return m_info; }
     const std::vector<PeSectionInfo>& Sections() const noexcept { return m_sections; }
     const std::vector<ResourceEntry>& Resources() const noexcept { return m_resources; }
+    const std::optional<PeExportInfo>& Exports() const noexcept { return m_exports; }
+    const std::vector<PeImportModule>& Imports() const noexcept { return m_imports; }
     const std::vector<uint8_t>& OriginalBytes() const noexcept { return m_bytes; }
 
     // Rebuilds the resource section from |model| and returns the complete new
@@ -61,11 +99,16 @@ private:
     Result<void> Parse();
     Result<uint32_t> RvaToOffset(uint32_t rva, uint32_t size) const;
     Result<uint32_t> ResourceSectionFileLimit(uint32_t rva) const;
+    std::optional<std::string> ReadAsciiStringAtRva(uint32_t rva, size_t maxLength) const;
+    void ParseExports();
+    void ParseImports();
 
     std::vector<uint8_t> m_bytes;
     PeInfo m_info;
     std::vector<PeSectionInfo> m_sections;
     std::vector<ResourceEntry> m_resources;
+    std::optional<PeExportInfo> m_exports;
+    std::vector<PeImportModule> m_imports;
 
     uint32_t m_peOffset = 0;
     uint32_t m_fileHeaderOffset = 0;

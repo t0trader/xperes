@@ -896,6 +896,103 @@ void TestUpxDetection() {
     }
 }
 
+void TestPeSymbols(const fs::path& samplePath) {
+    std::cout << "[test] import and export symbol tables\n";
+
+    auto sample = EXPECT_VALUE(PeImage::LoadFromFile(samplePath), "load sample DLL symbols");
+    if (sample) {
+        CHECK(sample->Exports().has_value());
+        if (sample->Exports()) {
+            const PeExportInfo& exports = *sample->Exports();
+            CHECK(exports.symbols.size() >= 1);
+            CHECK(exports.nameCount >= 1);
+            CHECK(exports.moduleName.find(".dll") != std::string::npos);
+
+            const PeExportSymbol* valueSymbol = nullptr;
+            for (const auto& symbol : exports.symbols) {
+                if (symbol.name == "peres_sample_value") {
+                    valueSymbol = &symbol;
+                    break;
+                }
+            }
+            CHECK(valueSymbol != nullptr);
+            if (valueSymbol != nullptr) {
+                CHECK(valueSymbol->rva != 0);
+                CHECK(valueSymbol->ordinal >= exports.baseOrdinal);
+                CHECK(valueSymbol->forwarder.empty());
+            }
+        }
+    }
+
+    const fs::path exePath(L"" PERES_TEST_EXE);
+    auto exe = EXPECT_VALUE(PeImage::LoadFromFile(exePath), "load peres.exe symbols");
+    if (exe) {
+        CHECK(!exe->Imports().empty());
+        CHECK(!exe->Exports().has_value());
+
+        bool hasKernel32 = false;
+        bool hasNamedImport = false;
+        size_t importSymbols = 0;
+        for (const auto& module : exe->Imports()) {
+            if (IEqualsAscii(Utf8ToWide(module.name), L"KERNEL32.dll")) {
+                hasKernel32 = true;
+            }
+            importSymbols += module.symbols.size();
+            for (const auto& symbol : module.symbols) {
+                if (!symbol.byOrdinal) {
+                    CHECK(!symbol.name.empty());
+                    if (!symbol.name.empty()) {
+                        hasNamedImport = true;
+                    }
+                    CHECK(symbol.iatRva != 0);
+                }
+            }
+        }
+        CHECK(hasKernel32);
+        CHECK(hasNamedImport);
+        CHECK(importSymbols > 0);
+    }
+
+    // A synthetic PE32 image with one import descriptor exercises the 32-bit
+    // thunk path that the 64-bit test binaries cannot reach.
+    auto pe32 = MakeMinimalPe32();
+    const uint32_t optionalHeader = 0x98;
+    Put32(pe32, optionalHeader + 96 + 8, 0x1080);   // Import directory RVA
+    Put32(pe32, optionalHeader + 96 + 12, 40);      // Two descriptors
+    Put32(pe32, 0x280, 0x10C0);                     // OriginalFirstThunk
+    Put32(pe32, 0x284, 0);                          // TimeDateStamp
+    Put32(pe32, 0x288, 0);                          // ForwarderChain
+    Put32(pe32, 0x28C, 0x10A8);                     // DLL name RVA
+    Put32(pe32, 0x290, 0x10E0);                     // FirstThunk (IAT)
+    std::memcpy(pe32.data() + 0x2A8, "KERNEL32.dll", 13);
+    Put32(pe32, 0x2C0, 0x1100);                     // ILT entry -> hint/name
+    Put32(pe32, 0x2C4, 0);
+    Put32(pe32, 0x2E0, 0x1100);                     // IAT entry
+    Put32(pe32, 0x2E4, 0);
+    Put16(pe32, 0x300, 0);                          // Hint
+    std::memcpy(pe32.data() + 0x302, "ExitProcess", 12);
+
+    auto synthetic = EXPECT_VALUE(PeImage::LoadFromBytes(std::move(pe32)),
+                                  "parse synthetic PE32 imports");
+    if (synthetic) {
+        CHECK(synthetic->Imports().size() == 1);
+        if (synthetic->Imports().size() == 1) {
+            const PeImportModule& module = synthetic->Imports().front();
+            CHECK(module.name == "KERNEL32.dll");
+            CHECK(module.firstThunkRva == 0x10E0);
+            CHECK(module.symbols.size() == 1);
+            if (module.symbols.size() == 1) {
+                const PeImportSymbol& symbol = module.symbols.front();
+                CHECK(!symbol.byOrdinal);
+                CHECK(symbol.name == "ExitProcess");
+                CHECK(symbol.hint == 0);
+                CHECK(symbol.iatRva == 0x10E0);
+            }
+        }
+        CHECK(!synthetic->Exports().has_value());
+    }
+}
+
 void TestApplicationExe() {
     std::cout << "[test] application executable resources\n";
     const fs::path exePath(L"" PERES_TEST_EXE);
@@ -941,6 +1038,7 @@ int main() {
     TestUpxRoundTrip(fs::path(L"" PERES_TEST_EXE));
     TestSampleDll();
     TestApplicationExe();
+    TestPeSymbols(fs::path(L"" PERES_TEST_SAMPLE_DLL));
 
     std::cout << fmt::format("checks: {}, failures: {}\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

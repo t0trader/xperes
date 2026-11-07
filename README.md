@@ -5,6 +5,10 @@
 ## 功能
 
 - **PE 基本信息**：架构（x86/x64 等）、PE32/PE32+、EXE/DLL、节数量、文件大小、签名与 UPX 特征。
+- **导入表 / 导出表**
+  - 解析导出目录：模块名、序号基值、命名/函数数量、序号、名称、RVA 与转发字符串。
+  - 解析导入描述符：模块名、OriginalFirstThunk / IAT、Hint、序号导入与按名称导入的符号。
+  - 资源树提供“导出表”与“导入表”节点，可逐级下钻到模块和单个符号，详情显示在下方文本面板。
 - **资源树**：按资源类型 / 名称 / 语言组织，显示编码、大小与语言。
 - **图标**
   - 查看图标组与单个图标图像。
@@ -190,5 +194,6 @@ FONT 9, 400, 0, 1, "Segoe UI"
 - MENU / MENUEX 解析、文本编辑、编译，并通过 `LoadMenuIndirectW` 验证。
 - DIALOG / DIALOGEX 解析、文本编辑、编译，并通过 `CreateDialogIndirectParamW` 验证。
 - RT_VERSION 解析，并与 Windows `GetFileVersionInfoW` / `VerQueryValueW` 交叉验证。
+- 导入表 / 导出表解析：样本 DLL 的导出符号、peres.exe 的导入模块与函数，以及合成 PE32 的 32 位 thunk。
 - XML 按节点格式化与编码保持。
 - 可选 UPX 压缩/脱壳闭环（读取 `peres.ini`，UPX 不可用时跳过）。
